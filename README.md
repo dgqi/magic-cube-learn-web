@@ -5,6 +5,10 @@
 An interactive web application for learning Rubik's Cube solving methods with real-time 3D visualization. From beginner to advanced, master cube solving through step-by-step animated tutorials.
 
 <p align="center">
+  <a href="https://magic-cube-learn.973554752.workers.dev/">🔗 Live Demo</a>
+</p>
+
+<p align="center">
   <img src="./screenshots/home.png" alt="Magic Cube Home" width="720" />
 </p>
 <p align="center">

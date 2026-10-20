@@ -5,6 +5,10 @@
 一个基于 WebGL 的交互式魔方学习应用，通过实时 3D 可视化动画，从入门到精通逐步掌握魔方还原技巧。
 
 <p align="center">
+  <a href="https://magic-cube-learn.973554752.workers.dev/">🔗 在线演示</a>
+</p>
+
+<p align="center">
   <img src="./screenshots/home.png" alt="魔方教学首页" width="720" />
 </p>
 <p align="center">
