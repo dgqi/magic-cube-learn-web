@@ -1,4 +1,4 @@
-import { forwardRef, useMemo, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useImperativeHandle, useRef } from 'react';
 import * as THREE from 'three';
 import type { CubeColorType } from '../../types/cube';
 import { getFaceColor } from '../../engine/cube';
@@ -12,20 +12,18 @@ export interface CubieHandle {
   updateColors: (colors: (CubeColorType | null)[]) => void;
 }
 
-const Cubie = forwardRef<CubieHandle, CubieProps>(({ colors }, ref) => {
+const Cubie = forwardRef<CubieHandle, CubieProps>(({ colors: _colors }, ref) => {
   const groupRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
 
-  const materials = useMemo(() => {
-    return colors.map((color) => {
-      const hexColor = color === null || color === undefined ? '#111111' : getFaceColor(color);
-      return new THREE.MeshStandardMaterial({
-        color: hexColor,
-        roughness: 0.3,
-        metalness: 0.1,
-      });
-    });
-  }, [colors]);
+  // Materials are created once with default color, never recreated.
+  // Colors are updated imperatively via updateColors() to avoid
+  // React re-render causing material rebuild and visual flash.
+  const materials = useRef(
+    Array.from({ length: 6 }, () =>
+      new THREE.MeshStandardMaterial({ color: '#111111', roughness: 0.3, metalness: 0.1 }),
+    ),
+  ).current;
 
   useImperativeHandle(ref, () => ({
     getGroup: () => groupRef.current,

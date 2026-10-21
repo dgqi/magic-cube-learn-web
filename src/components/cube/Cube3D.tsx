@@ -1,5 +1,4 @@
-import { useMemo, useRef, useEffect } from 'react';
-import { flushSync } from 'react-dom';
+import { useRef, useEffect, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import Cubie from './Cubie';
@@ -7,6 +6,7 @@ import type { CubieHandle } from './Cubie';
 import type { CubeState, CubeColorType } from '../../types/cube';
 import { Face } from '../../types/cube';
 import { getRotationParams } from '../../engine/moveSpec';
+import { applyMove } from '../../engine/cube';
 
 interface Cube3DProps {
   state: CubeState;
@@ -33,24 +33,30 @@ function getCubieColors(state: CubeState, x: number, y: number, z: number): (Cub
 // getRotationParams is now imported from engine/moveSpec
 // to keep animation and state engine in sync.
 
-function generateCubies(state: CubeState) {
-  const items: { key: string; position: [number, number, number]; colors: (CubeColorType | null)[] }[] = [];
-  for (let x = -1; x <= 1; x++) {
-    for (let y = -1; y <= 1; y++) {
-      for (let z = -1; z <= 1; z++) {
-        items.push({
-          key: `${x},${y},${z}`,
-          position: [x, y, z] as [number, number, number],
-          colors: getCubieColors(state, x, y, z),
-        });
-      }
+// Stable cubie positions — never changes with state.
+// Colors are updated imperatively via updateColors() in useLayoutEffect.
+const INITIAL_CUBIES: { key: string; position: [number, number, number] }[] = [];
+for (let x = -1; x <= 1; x++) {
+  for (let y = -1; y <= 1; y++) {
+    for (let z = -1; z <= 1; z++) {
+      INITIAL_CUBIES.push({ key: `${x},${y},${z}`, position: [x, y, z] });
     }
   }
-  return items;
 }
 
+// Placeholder colors — actual colors are set imperatively via useLayoutEffect
+const NULL_COLORS: (CubeColorType | null)[] = [null, null, null, null, null, null];
+
 export default function Cube3D({ state, animatingMove, onAnimationComplete, animationDuration = 0.4 }: Cube3DProps) {
-  const cubies = useMemo(() => generateCubies(state), [state]);
+  // Update colors imperatively when state changes — no Material rebuild.
+  useLayoutEffect(() => {
+    INITIAL_CUBIES.forEach(c => {
+      const handle = cubieRefs.current[c.key];
+      if (handle) {
+        handle.updateColors(getCubieColors(state, c.position[0], c.position[1], c.position[2]));
+      }
+    });
+  }, [state]);
   const cubieRefs = useRef<Record<string, CubieHandle>>({});
 
   const animRef = useRef<{
@@ -67,7 +73,7 @@ export default function Cube3D({ state, animatingMove, onAnimationComplete, anim
   useEffect(() => {
     if (!animatingMove) {
       // 重置所有 cubie 到 grid 位置
-      cubies.forEach(c => {
+      INITIAL_CUBIES.forEach(c => {
         const handle = cubieRefs.current[c.key];
         const group = handle?.getGroup();
         if (group) {
@@ -96,7 +102,7 @@ export default function Cube3D({ state, animatingMove, onAnimationComplete, anim
     }
 
     // 确保所有 cubie 在 grid 位置
-    cubies.forEach(c => {
+    INITIAL_CUBIES.forEach(c => {
       const handle = cubieRefs.current[c.key];
       const group = handle?.getGroup();
       if (group) {
@@ -114,20 +120,9 @@ export default function Cube3D({ state, animatingMove, onAnimationComplete, anim
       done: false,
       notified: false,
     };
-  }, [animatingMove, cubies]);
+  }, [animatingMove]);
 
-  // 当 state 变化（非动画触发）时，同步视觉位置
-  useEffect(() => {
-    if (animRef.current && !animRef.current.done) return;
-    cubies.forEach(c => {
-      const handle = cubieRefs.current[c.key];
-      const group = handle?.getGroup();
-      if (group) {
-        group.position.set(c.position[0], c.position[1], c.position[2]);
-        group.rotation.set(0, 0, 0);
-      }
-    });
-  }, [cubies]);
+
 
   const setCubieRef = (key: string) => (el: CubieHandle | null) => {
     if (el) {
@@ -173,12 +168,23 @@ export default function Cube3D({ state, animatingMove, onAnimationComplete, anim
       }
     });
 
-    // 动画完成
+    // 动画完成：先更新颜色，再重置位置，最后通知父组件（同一帧内完成，无闪烁）
     if (t >= 1) {
       anim.done = true;
 
-      // 1. 立即重置所有 cubie 到 grid 位置（无视觉变化，因为最终角度=目标角度，grid 位置+新颜色=正确结果）
-      cubies.forEach(c => {
+      // 1. 计算动画后的新状态
+      const newState = applyMove(state, animatingMove!);
+
+      // 2. 立即更新所有 cubie 颜色（直接修改 Material.color，不触发 React re-render）
+      INITIAL_CUBIES.forEach(c => {
+        const handle = cubieRefs.current[c.key];
+        if (handle) {
+          handle.updateColors(getCubieColors(newState, c.position[0], c.position[1], c.position[2]));
+        }
+      });
+
+      // 3. 重置所有 cubie 到 grid 位置
+      INITIAL_CUBIES.forEach(c => {
         const handle = cubieRefs.current[c.key];
         const group = handle?.getGroup();
         if (group) {
@@ -187,23 +193,21 @@ export default function Cube3D({ state, animatingMove, onAnimationComplete, anim
         }
       });
 
-      // 2. 同步触发状态更新 + re-render（颜色在同一帧更新，无闪烁）
+      // 4. 通知父组件更新状态（仅用于历史记录等簿记，视觉已在步骤2+3同步完成）
       if (onAnimationComplete && !anim.notified) {
         anim.notified = true;
-        flushSync(() => {
-          onAnimationComplete();
-        });
+        onAnimationComplete();
       }
     }
   });
 
   return (
     <group>
-      {cubies.map((cubie) => (
+      {INITIAL_CUBIES.map((cubie) => (
         <Cubie
           key={cubie.key}
           ref={setCubieRef(cubie.key)}
-          colors={cubie.colors}
+          colors={NULL_COLORS}
         />
       ))}
     </group>
